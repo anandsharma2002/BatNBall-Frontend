@@ -53,7 +53,7 @@ export const AuthProvider = ({ children }) => {
           localStorage.removeItem('user');
           localStorage.removeItem('role');
           delete axios.defaults.headers.common['Authorization'];
-          window.location.href = '/login';
+          window.location.href = `${import.meta.env.BASE_URL}login`;
         }
         return Promise.reject(error);
       }
