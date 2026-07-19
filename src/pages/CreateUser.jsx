@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import Navigation from '../components/Navigation';
+import { API_BASE_URL } from '../config';
 import { UserPlus, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const CreateUser = () => {
@@ -42,7 +43,7 @@ const CreateUser = () => {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/v1/admin/users/create', {
+      const response = await axios.post(`${API_BASE_URL}/admin/users/create`, {
         phone_number: phone.trim(),
         password: pass,
         username: username.trim().toLowerCase(),

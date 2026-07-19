@@ -5,8 +5,7 @@ import Navigation from '../components/Navigation';
 import { Award, Zap, Shield, Trophy, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import virat3Image from '../assets/Virat3.jpg';
-
-const API = 'http://localhost:5000/api/v1';
+import { API_BASE_URL as API } from '../config';
 
 const CapIcon = ({ color }) => (
   <svg viewBox="0 0 24 24" width="32" height="32" style={{ display: 'block' }}>

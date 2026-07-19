@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { Shield, Phone, Key, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const ForgotPassword = () => {
   const [step, setStep] = useState(1); // 1 = Phone request, 2 = OTP verify & reset
@@ -27,7 +28,7 @@ const ForgotPassword = () => {
     }
 
     try {
-      await axios.post('http://localhost:5000/api/v1/auth/forgot-password/request', {
+      await axios.post(`${API_BASE_URL}/auth/forgot-password/request`, {
         phone_number: phone.trim()
       });
       setSuccess('Verification OTP code has been logged to the Backend console!');
@@ -58,7 +59,7 @@ const ForgotPassword = () => {
     }
 
     try {
-      await axios.post('http://localhost:5000/api/v1/auth/forgot-password/verify', {
+      await axios.post(`${API_BASE_URL}/auth/forgot-password/verify`, {
         phone_number: phone.trim(),
         otp: otp.trim(),
         new_password: newPassword

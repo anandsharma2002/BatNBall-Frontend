@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import Navigation from '../components/Navigation';
+import { API_BASE_URL } from '../config';
 import { User, CheckCircle, AlertTriangle, Save, Upload, Award } from 'lucide-react';
 import StatsRadarChart from '../components/StatsRadarChart';
 import RunsTimelineChart from '../components/RunsTimelineChart';
@@ -36,7 +37,7 @@ const ProfileEdit = () => {
       return;
     }
 
-    axios.get(`http://localhost:5000/api/v1/players/${playerId}`)
+    axios.get(`${API_BASE_URL}/players/${playerId}`)
       .then(response => {
         const player = response.data;
         setFirstName(player.first_name || '');
@@ -63,7 +64,7 @@ const ProfileEdit = () => {
       return;
     }
 
-    axios.get(`http://localhost:5000/api/v1/players/${playerId}/stats/charts`)
+    axios.get(`${API_BASE_URL}/players/${playerId}/stats/charts`)
       .then(response => {
         setChartData(response.data);
         setChartLoading(false);
@@ -119,7 +120,7 @@ const ProfileEdit = () => {
     }
 
     try {
-      const response = await axios.put(`http://localhost:5000/api/v1/players/${playerId}`, formData, {
+      const response = await axios.put(`${API_BASE_URL}/players/${playerId}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }

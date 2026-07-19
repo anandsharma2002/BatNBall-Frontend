@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import Navigation from '../components/Navigation';
+import { API_BASE_URL } from '../config';
 import { Users, Plus, UserPlus, CheckCircle, AlertTriangle, Search, Info } from 'lucide-react';
 
 const TeamManagement = () => {
@@ -32,7 +33,7 @@ const TeamManagement = () => {
   // Fetch all teams
   const fetchTeams = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/v1/teams');
+      const response = await axios.get(`${API_BASE_URL}/teams`);
       setTeams(response.data);
       if (selectedTeam) {
         // Refresh details of currently selected team
@@ -67,7 +68,7 @@ const TeamManagement = () => {
     }
 
     const timer = setTimeout(() => {
-      axios.get(`http://localhost:5000/api/v1/players/search?q=${searchQuery}`)
+      axios.get(`${API_BASE_URL}/players/search?q=${searchQuery}`)
         .then(res => {
           // Filter out players already in the squad
           if (selectedTeam) {
@@ -103,7 +104,7 @@ const TeamManagement = () => {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/v1/teams', formData, {
+      const response = await axios.post(`${API_BASE_URL}/teams`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
@@ -132,7 +133,7 @@ const TeamManagement = () => {
     setActionLoading(true);
 
     try {
-      const response = await axios.post(`http://localhost:5000/api/v1/teams/${selectedTeam._id}/roster`, {
+      const response = await axios.post(`${API_BASE_URL}/teams/${selectedTeam._id}/roster`, {
         player_id: selectedPlayer._id,
         role_in_team: roleInTeam
       });

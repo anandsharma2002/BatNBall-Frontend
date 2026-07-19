@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 import { Shield, CheckCircle, AlertTriangle, User, Calendar, MapPin, Users } from 'lucide-react';
 
 const RosterJoin = () => {
@@ -23,7 +24,7 @@ const RosterJoin = () => {
   useEffect(() => {
     if (!matchId) return;
 
-    axios.get(`http://localhost:5000/api/v1/matches/${matchId}`)
+    axios.get(`${API_BASE_URL}/matches/${matchId}`)
       .then(res => {
         setMatch(res.data);
         setLoading(false);
@@ -48,7 +49,7 @@ const RosterJoin = () => {
     }
 
     try {
-      await axios.post(`http://localhost:5000/api/v1/matches/${matchId}/join`, {
+      await axios.post(`${API_BASE_URL}/matches/${matchId}/join`, {
         first_name: firstName,
         last_name: lastName,
         display_name: displayName,

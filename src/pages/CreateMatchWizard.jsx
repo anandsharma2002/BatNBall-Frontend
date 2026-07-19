@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import Navigation from '../components/Navigation';
+import { API_BASE_URL, SOCKET_URL } from '../config';
 import { Calendar, MapPin, Settings, Shield, Clipboard, Check, Plus, UserPlus, Trophy, AlertTriangle } from 'lucide-react';
 
 const getLocalDateTimeString = () => {
@@ -99,7 +100,7 @@ const CreateMatchWizard = () => {
 
   // Load teams list
   useEffect(() => {
-    axios.get('http://localhost:5000/api/v1/teams')
+    axios.get(`${API_BASE_URL}/teams`)
       .then(res => setTeamsList(res.data))
       .catch(err => console.error('Fetch teams error:', err));
   }, []);
@@ -108,7 +109,7 @@ const CreateMatchWizard = () => {
   useEffect(() => {
     if (!matchId) return;
 
-    const newSocket = io('http://localhost:5000');
+    const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
 
     newSocket.emit('join_match_room', matchId);
@@ -136,7 +137,7 @@ const CreateMatchWizard = () => {
     }
 
     const timer = setTimeout(() => {
-      axios.get(`http://localhost:5000/api/v1/players/search?q=${searchQuery}`)
+      axios.get(`${API_BASE_URL}/players/search?q=${searchQuery}`)
         .then(res => {
           // Filter out players already in the match
           if (matchData) {
@@ -188,7 +189,7 @@ const CreateMatchWizard = () => {
           firstId = matched._id;
         } else {
           const shortName = generateShortName(trimmedFirst);
-          const teamRes = await axios.post('http://localhost:5000/api/v1/teams', {
+          const teamRes = await axios.post(`${API_BASE_URL}/teams`, {
             team_name: trimmedFirst,
             team_short_name: shortName
           });
@@ -204,7 +205,7 @@ const CreateMatchWizard = () => {
           secondId = matched._id;
         } else {
           const shortName = generateShortName(trimmedSecond);
-          const teamRes = await axios.post('http://localhost:5000/api/v1/teams', {
+          const teamRes = await axios.post(`${API_BASE_URL}/teams`, {
             team_name: trimmedSecond,
             team_short_name: shortName
           });
@@ -227,7 +228,7 @@ const CreateMatchWizard = () => {
         teamSecondId: secondId
       }));
 
-      const res = await axios.post('http://localhost:5000/api/v1/matches', {
+      const res = await axios.post(`${API_BASE_URL}/matches`, {
         venue,
         match_date_time: dateTime,
         total_overs_per_innings: totalOvers,
@@ -242,7 +243,7 @@ const CreateMatchWizard = () => {
       setMatchId(res.data.match._id);
       
       // Fetch fresh populated match details
-      const matchDetails = await axios.get(`http://localhost:5000/api/v1/matches/${res.data.match._id}`);
+      const matchDetails = await axios.get(`${API_BASE_URL}/matches/${res.data.match._id}`);
       setMatchData(matchDetails.data);
       
       setPhase(2);
@@ -261,7 +262,7 @@ const CreateMatchWizard = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post(`http://localhost:5000/api/v1/matches/${matchId}/join`, {
+      const response = await axios.post(`${API_BASE_URL}/matches/${matchId}/join`, {
         display_name: selectedPlayer.display_name,
         team_id: selectedTeamId,
         is_substitute: isSub
@@ -283,7 +284,7 @@ const CreateMatchWizard = () => {
   };
 
   const handleCopyLink = () => {
-    const link = `http://localhost:5173/matches/${matchId}/join`;
+    const link = `${window.location.origin}${import.meta.env.BASE_URL}matches/${matchId}/join`;
     navigator.clipboard.writeText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -298,7 +299,7 @@ const CreateMatchWizard = () => {
     }
 
     try {
-      const res = await axios.put(`http://localhost:5000/api/v1/matches/${matchId}/umpires`, {
+      const res = await axios.put(`${API_BASE_URL}/matches/${matchId}/umpires`, {
         umpires: currentUmpires
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -319,7 +320,7 @@ const CreateMatchWizard = () => {
     setLoading(true);
 
     try {
-      await axios.put(`http://localhost:5000/api/v1/matches/${matchId}/toss`, {
+      await axios.put(`${API_BASE_URL}/matches/${matchId}/toss`, {
         toss_won_by_team_id: tossWinner,
         toss_decision: tossDecision
       });

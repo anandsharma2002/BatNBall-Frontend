@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Navigation from '../components/Navigation';
+import { API_BASE_URL, SOCKET_URL } from '../config';
 import { User, Award, Shield, ArrowLeft, BarChart2 } from 'lucide-react';
 import StatsRadarChart from '../components/StatsRadarChart';
 import RunsTimelineChart from '../components/RunsTimelineChart';
@@ -28,7 +29,7 @@ const PlayerProfile = () => {
     setError('');
 
     // Fetch player profile details
-    axios.get(`http://localhost:5000/api/v1/players/${playerId}`)
+    axios.get(`${API_BASE_URL}/players/${playerId}`)
       .then(res => {
         setPlayer(res.data);
         setStats(res.data.career_stats || null);
@@ -42,7 +43,7 @@ const PlayerProfile = () => {
 
     // Fetch visual charts
     setChartLoading(true);
-    axios.get(`http://localhost:5000/api/v1/players/${playerId}/stats/charts`)
+    axios.get(`${API_BASE_URL}/players/${playerId}/stats/charts`)
       .then(res => {
         setChartData(res.data);
         setChartLoading(false);
@@ -115,7 +116,7 @@ const PlayerProfile = () => {
         <div className="glass" style={{ padding: '2rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '2rem' }}>
           {player.profile_picture_url ? (
             <img 
-              src={`http://localhost:5000${player.profile_picture_url}`} 
+              src={`${SOCKET_URL}${player.profile_picture_url}`} 
               alt={player.display_name} 
               style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--accent-color)' }}
             />

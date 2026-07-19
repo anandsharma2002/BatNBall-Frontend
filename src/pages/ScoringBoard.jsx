@@ -8,9 +8,7 @@ import {
 } from 'lucide-react';
 import Navigation from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
-
-const API = 'http://localhost:5000/api/v1';
-const SOCKET_URL = 'http://localhost:5000';
+import { API_BASE_URL as API, SOCKET_URL } from '../config';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const formatOvers = (legal_balls) => {

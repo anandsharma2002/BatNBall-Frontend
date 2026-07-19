@@ -21,7 +21,7 @@ import ThemeToggle from './components/ThemeToggle';
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <Routes>
           {/* Public Authentication Routes */}
           <Route path="/login" element={<Login />} />

@@ -4,8 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import { Shield, Calendar, MapPin, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
 import Navigation from '../components/Navigation';
-
-const API = 'http://localhost:5000/api/v1';
+import { API_BASE_URL as API } from '../config';
 
 const Dashboard = () => {
   const { user, role } = useAuth();

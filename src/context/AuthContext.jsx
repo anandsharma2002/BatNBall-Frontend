@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 const AuthContext = createContext(null);
 
@@ -64,7 +65,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (phone_number, password) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/v1/auth/login', {
+      const response = await axios.post(`${API_BASE_URL}/auth/login`, {
         phone_number,
         password
       });
@@ -96,7 +97,7 @@ export const AuthProvider = ({ children }) => {
 
   const changePassword = async (current_password, new_password, confirm_new_password) => {
     try {
-      const response = await axios.put('http://localhost:5000/api/v1/users/change-password', {
+      const response = await axios.put(`${API_BASE_URL}/users/change-password`, {
         current_password,
         new_password,
         confirm_new_password
