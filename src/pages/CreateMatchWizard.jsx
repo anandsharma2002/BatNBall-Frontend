@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import Navigation from '../components/Navigation';
+import DateTimePicker from '../components/DateTimePicker';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL, SOCKET_URL } from '../config';
 import { Calendar, MapPin, Settings, Clipboard, Check, Plus, UserPlus, Trophy, AlertTriangle, UserMinus, GripVertical, Trash2 } from 'lucide-react';
@@ -169,6 +170,73 @@ const CreateMatchWizard = () => {
       }
     }
   }, [teamsList, teamFirstSelectedId, teamSecondSelectedId]);
+
+  // Independent previous match squad states for Team A and Team B
+  const [teamAPreviousMatch, setTeamAPreviousMatch] = useState(null);
+  const [useTeamASameSquad, setUseTeamASameSquad] = useState(true);
+
+  const [teamBPreviousMatch, setTeamBPreviousMatch] = useState(null);
+  const [useTeamBSameSquad, setUseTeamBSameSquad] = useState(true);
+
+  // Compute active team IDs for Team A and Team B
+  const activeTeamAId = teamFirstSelectedId || teamsList.find(t => t.team_name.toLowerCase() === teamFirstSearch.toLowerCase().trim())?._id;
+  const activeTeamBId = teamSecondSelectedId || teamsList.find(t => t.team_name.toLowerCase() === teamSecondSearch.toLowerCase().trim())?._id;
+
+  // Check previous match squad for Team A
+  useEffect(() => {
+    if (!activeTeamAId) {
+      setTeamAPreviousMatch(null);
+      setUseTeamASameSquad(false);
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    axios.get(`${API_BASE_URL}/matches/team-previous-squad?teamId=${activeTeamAId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (res.data.hasPreviousMatch) {
+          setTeamAPreviousMatch(res.data);
+          setUseTeamASameSquad(true);
+        } else {
+          setTeamAPreviousMatch(null);
+          setUseTeamASameSquad(false);
+        }
+      })
+      .catch(err => {
+        console.error('Fetch team A previous match error:', err);
+        setTeamAPreviousMatch(null);
+        setUseTeamASameSquad(false);
+      });
+  }, [activeTeamAId]);
+
+  // Check previous match squad for Team B
+  useEffect(() => {
+    if (!activeTeamBId) {
+      setTeamBPreviousMatch(null);
+      setUseTeamBSameSquad(false);
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    axios.get(`${API_BASE_URL}/matches/team-previous-squad?teamId=${activeTeamBId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (res.data.hasPreviousMatch) {
+          setTeamBPreviousMatch(res.data);
+          setUseTeamBSameSquad(true);
+        } else {
+          setTeamBPreviousMatch(null);
+          setUseTeamBSameSquad(false);
+        }
+      })
+      .catch(err => {
+        console.error('Fetch team B previous match error:', err);
+        setTeamBPreviousMatch(null);
+        setUseTeamBSameSquad(false);
+      });
+  }, [activeTeamBId]);
 
   // Search & add players per team states
   const [teamASearchQuery, setTeamASearchQuery] = useState('');
@@ -425,7 +493,13 @@ const CreateMatchWizard = () => {
         team_first_id: firstId,
         team_second_id: secondId,
         match_rules: rules,
-        umpires: []
+        umpires: [],
+        copy_team_a_previous_squad: useTeamASameSquad,
+        team_a_previous_match_id: teamAPreviousMatch?.matchId,
+        copy_team_b_previous_squad: useTeamBSameSquad,
+        team_b_previous_match_id: teamBPreviousMatch?.matchId
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
 
       setMatchId(res.data.match._id);
@@ -626,7 +700,11 @@ const CreateMatchWizard = () => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                   <label style={{ fontSize: '0.85rem', fontWeight: '600' }}><Calendar size={14} style={{ verticalAlign: 'middle', marginRight: '0.2rem' }} />Date & Time *</label>
-                  <input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} required />
+                  <DateTimePicker
+                    value={dateTime}
+                    onChange={(val) => setDateTime(val)}
+                    required
+                  />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -710,6 +788,25 @@ const CreateMatchWizard = () => {
                       ))}
                     </div>
                   )}
+                  {teamFirstSearch.trim() !== '' && (
+                    <div style={{
+                      marginTop: '0.4rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem'
+                    }}>
+                      <input 
+                        type="checkbox"
+                        id="useTeamASameSquad"
+                        checked={useTeamASameSquad}
+                        onChange={(e) => setUseTeamASameSquad(e.target.checked)}
+                        style={{ width: '15px', height: '15px', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="useTeamASameSquad" style={{ fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', color: 'var(--text-color)' }}>
+                        Use same team squad from previous match {teamAPreviousMatch?.squadCount ? `(${teamAPreviousMatch.squadCount} players)` : ''}
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', position: 'relative' }}>
@@ -766,6 +863,25 @@ const CreateMatchWizard = () => {
                           {t.team_name}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {teamSecondSearch.trim() !== '' && (
+                    <div style={{
+                      marginTop: '0.4rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem'
+                    }}>
+                      <input 
+                        type="checkbox"
+                        id="useTeamBSameSquad"
+                        checked={useTeamBSameSquad}
+                        onChange={(e) => setUseTeamBSameSquad(e.target.checked)}
+                        style={{ width: '15px', height: '15px', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="useTeamBSameSquad" style={{ fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', color: 'var(--text-color)' }}>
+                        Use same team squad from previous match {teamBPreviousMatch?.squadCount ? `(${teamBPreviousMatch.squadCount} players)` : ''}
+                      </label>
                     </div>
                   )}
                 </div>
@@ -935,7 +1051,7 @@ const CreateMatchWizard = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
-                  <strong>Playing XI (Click to toggle Umpire, Drag to move):</strong>
+                  <strong>Playing XI:</strong>
                   {matchData.playing_xi_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined (Drop player here).</span> : (
                     matchData.playing_xi_team_first.map(p => {
                       const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
@@ -994,7 +1110,7 @@ const CreateMatchWizard = () => {
                   )}
                   {matchData.match_rules?.allow_substitutes === true && (
                     <>
-                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire, Drag to move):</strong>
+                      <strong style={{ marginTop: '0.5rem' }}>Substitutes:</strong>
                       {matchData.substitutes_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined.</span> : (
                         matchData.substitutes_team_first.map(p => {
                           const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
@@ -1141,7 +1257,7 @@ const CreateMatchWizard = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
-                  <strong>Playing XI (Click to toggle Umpire, Drag to move):</strong>
+                  <strong>Playing XI:</strong>
                   {matchData.playing_xi_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined (Drop player here).</span> : (
                     matchData.playing_xi_team_second.map(p => {
                       const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
@@ -1200,7 +1316,7 @@ const CreateMatchWizard = () => {
                   )}
                   {matchData.match_rules?.allow_substitutes === true && (
                     <>
-                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire, Drag to move):</strong>
+                      <strong style={{ marginTop: '0.5rem' }}>Substitutes:</strong>
                       {matchData.substitutes_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined.</span> : (
                         matchData.substitutes_team_second.map(p => {
                           const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);

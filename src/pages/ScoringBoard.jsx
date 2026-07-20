@@ -22,17 +22,10 @@ const calcStrikeRate = (runs, balls) =>
 
 // ─── Score Pill ────────────────────────────────────────────────────────────────
 const ScorePill = ({ label, value, sub }) => (
-  <div style={{
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '10px',
-    padding: '0.75rem 1.25rem',
-    textAlign: 'center',
-    minWidth: '90px'
-  }}>
-    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-    <div style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--secondary-color)', lineHeight: 1 }}>{value}</div>
-    {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{sub}</div>}
+  <div className="score-pill-card">
+    <div className="pill-label" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+    <div className="pill-val" style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--secondary-color)', lineHeight: 1 }}>{value}</div>
+    {sub && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{sub}</div>}
   </div>
 );
 
@@ -513,12 +506,11 @@ const ScoringBoard = () => {
 
       {/* Umpire handover request toast (only visible to current active umpire) */}
       {umpireRequest && (
-        <div style={{
+        <div className="umpire-toast-card" style={{
           position: 'fixed', top: '100px', left: '50%', transform: 'translateX(-50%)', zIndex: 300,
           background: 'var(--dominant-color, #1e1e24)', color: 'var(--text-color, #ffffff)',
           border: '2px solid var(--accent-color, #c6a567)', borderRadius: '12px',
           padding: '1rem 1.5rem', boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
-          display: 'flex', alignItems: 'center', gap: '1.5rem',
           animation: 'fadeIn 0.2s ease'
         }}>
           <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>
@@ -556,76 +548,68 @@ const ScoringBoard = () => {
         </div>
       )}
 
-      <div style={{ maxWidth: '900px', margin: '2rem auto', padding: '0 1.5rem', boxSizing: 'border-box' }}>
+      <div className="scoring-container">
 
         {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div className="scoring-header-bar">
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: '800', margin: 0 }}>
-              <Shield size={20} style={{ marginRight: '0.5rem', color: 'var(--accent-color)' }} />
+            <h1 style={{ fontSize: '1.3rem', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center' }}>
+              <Shield size={20} style={{ marginRight: '0.4rem', color: 'var(--accent-color)' }} />
               Live Scoring
             </h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.25rem 0 0' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
               {match?.current_innings_batting_team_id?.team_name} vs {
                 innings === 1 ? match?.team_second_id?.team_name : match?.team_first_id?.team_name
               } — Innings {innings}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div className="scoring-controls">
             {match?.match_status !== 'COMPLETED' && (
               <>
                 <button
-                  className="btn"
+                  className="btn scoring-btn"
                   onClick={handleUndo}
                   disabled={actionLoading || !match?.undo_actions_remaining}
                   style={{
-                    fontSize: '0.85rem', padding: '0.5rem 1rem',
                     background: 'rgba(255,255,255,0.04)',
                     color: !match?.undo_actions_remaining ? 'var(--text-muted)' : 'var(--text-color)',
                     border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    cursor: !match?.undo_actions_remaining ? 'not-allowed' : 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '0.4rem'
+                    cursor: !match?.undo_actions_remaining ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  <RotateCcw size={14} />
+                  <RotateCcw size={13} />
                   Undo ({match?.undo_actions_remaining ?? 0})
                 </button>
                 <button
-                  className="btn"
+                  className="btn scoring-btn"
                   onClick={() => setShowEndInningsConfirm(true)}
                   disabled={actionLoading}
                   style={{
-                    fontSize: '0.85rem', padding: '0.5rem 1rem',
                     background: 'rgba(245, 158, 11, 0.1)',
                     color: '#f59e0b',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    borderRadius: '8px',
+                    border: '1px solid rgba(245, 158, 11, 0.3)'
                   }}
                 >
                   End Inning
                 </button>
                 <button
-                  className="btn"
+                  className="btn scoring-btn"
                   onClick={() => {
                     setEndMatchForm({ winner_team_id: 'DRAW', result_type: 'RUNS', win_margin: 0 });
                     setShowEndMatchModal(true);
                   }}
                   disabled={actionLoading}
                   style={{
-                    fontSize: '0.85rem', padding: '0.5rem 1rem',
                     background: 'rgba(239, 68, 68, 0.1)',
                     color: '#ef4444',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    borderRadius: '8px',
+                    border: '1px solid rgba(239, 68, 68, 0.3)'
                   }}
                 >
                   End Match
                 </button>
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-primary scoring-btn"
                   onClick={() => setShowInitModal(true)}
-                  style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
                 >
                   {creaseReady ? 'Change Crease' : 'Set Crease'}
                 </button>
@@ -637,13 +621,11 @@ const ScoringBoard = () => {
               <select
                 onChange={handleAppointUmpire}
                 defaultValue=""
+                className="scoring-btn"
                 style={{
-                  fontSize: '0.82rem',
-                  padding: '0.45rem 0.75rem',
                   background: 'rgba(255,255,255,0.06)',
                   color: 'var(--text-color)',
                   border: '1px solid var(--border-color)',
-                  borderRadius: '8px',
                   cursor: 'pointer',
                   outline: 'none'
                 }}
@@ -660,7 +642,7 @@ const ScoringBoard = () => {
         </div>
 
         {/* ── Scoreboard ─────────────────────────────────────────────────────── */}
-        <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.25rem', boxShadow: 'var(--shadow)' }}>
+        <div className="glass scoring-card">
 
           {/* Team Scores */}
           {(() => {
@@ -680,8 +662,8 @@ const ScoringBoard = () => {
             const showInn2 = innings === 2;
 
             return (
-              <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem', marginBottom: '0.3rem' }}>
+              <div style={{ marginBottom: '0.85rem', paddingBottom: '0.85rem', borderBottom: '1px solid var(--border-color)' }}>
+                <div className="scoring-team-row">
                   <span style={{ fontWeight: '600' }}>{team1stBat?.team_name || '—'}</span>
                   {showInn1 ? (
                     <span style={{ fontWeight: '700', color: 'var(--secondary-color)' }}>
@@ -691,7 +673,7 @@ const ScoringBoard = () => {
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>–</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem' }}>
+                <div className="scoring-team-row">
                   <span style={{ fontWeight: '600' }}>{team2ndBat?.team_name || '—'}</span>
                   {showInn2 ? (
                     <span style={{ fontWeight: '700', color: 'var(--secondary-color)' }}>
@@ -707,12 +689,7 @@ const ScoringBoard = () => {
 
           {/* Batsmen + Bowler row */}
           {creaseReady && (
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-              marginBottom: '1rem', paddingBottom: '1rem',
-              borderBottom: '1px solid var(--border-color)',
-              fontSize: '0.88rem', lineHeight: '1.6'
-            }}>
+            <div className="scoring-crease-row">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.05rem' }}>
                 {[
                   { player: striker, isStrike: true },
@@ -756,7 +733,7 @@ const ScoringBoard = () => {
           )}
 
           {/* Score Pills — no TEA, just Target/Need/CRR/RRR */}
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <div className="score-pills-container">
             {innings === 2 && (
               <>
                 <ScorePill label="Target" value={(match?.innings1?.score ?? 0) + 1} />
@@ -788,40 +765,34 @@ const ScoringBoard = () => {
 
         {/* ── Scoring Pad ─────────────────────────────────────────────────────── */}
         {match?.match_status === 'COMPLETED' ? (
-          <div className="glass" style={{ padding: '2.5rem', textAlign: 'center', boxShadow: 'var(--shadow)' }}>
-            <CheckCircle size={48} style={{ color: '#22c55e', marginBottom: '1rem' }} />
-            <h3 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '0.5rem' }}>Match Complete!</h3>
-            <p style={{ color: 'var(--text-muted)' }}>The match has concluded. View the final scorecard above.</p>
+          <div className="glass scoring-card" style={{ textAlign: 'center' }}>
+            <CheckCircle size={44} style={{ color: '#22c55e', marginBottom: '0.75rem' }} />
+            <h3 style={{ fontSize: '1.3rem', fontWeight: '800', marginBottom: '0.35rem' }}>Match Complete!</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>The match has concluded. View the final scorecard above.</p>
           </div>
         ) : !creaseReady ? (
-          <div className="glass" style={{ padding: '2rem', textAlign: 'center', boxShadow: 'var(--shadow)' }}>
-            <AlertTriangle size={36} style={{ color: '#f59e0b', marginBottom: '0.75rem' }} />
-            <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>Set the crease positions to start scoring.</p>
-            <button className="btn btn-primary" onClick={() => setShowInitModal(true)}>
+          <div className="glass scoring-card" style={{ textAlign: 'center' }}>
+            <AlertTriangle size={32} style={{ color: '#f59e0b', marginBottom: '0.5rem' }} />
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', fontSize: '0.85rem' }}>Set the crease positions to start scoring.</p>
+            <button className="btn btn-primary scoring-btn" onClick={() => setShowInitModal(true)}>
               Set Crease →
             </button>
           </div>
         ) : (
-          <div className="glass" style={{ padding: '1.5rem', boxShadow: 'var(--shadow)' }}>
-            <div style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          <div className="glass scoring-card">
+            <div style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Log Ball
             </div>
 
             {/* Run Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.6rem', marginBottom: '1rem' }}>
+            <div className="scoring-run-grid">
               {[0, 1, 2, 3, 4, 6].map(r => (
                 <button
                   key={r}
                   onClick={() => handleRun(r)}
                   disabled={actionLoading}
+                  className="scoring-run-btn"
                   style={{
-                    padding: '1.25rem 0',
-                    borderRadius: '10px',
-                    fontWeight: '800',
-                    fontSize: r === 4 || r === 6 ? '1.4rem' : '1.3rem',
-                    cursor: 'pointer',
-                    border: '2px solid',
-                    transition: 'all 0.15s ease',
                     background: r === 4
                       ? 'rgba(34,197,94,0.12)'
                       : r === 6
@@ -841,15 +812,14 @@ const ScoringBoard = () => {
             </div>
 
             {/* Action Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.6rem', marginBottom: '0.6rem' }}>
+            <div className="scoring-action-grid">
               <button
                 onClick={() => { setExtraForm({ extra_type: 'WIDE', extra_runs: 1 }); setPendingRuns(0); setShowExtraModal(true); }}
                 disabled={actionLoading}
-                className="btn"
+                className="btn scoring-action-btn"
                 style={{
-                  padding: '0.75rem 0', fontWeight: '700', fontSize: '0.85rem',
                   border: '2px solid #ca8a04', color: '#ca8a04',
-                  background: 'rgba(202,138,4,0.08)', borderRadius: '10px'
+                  background: 'rgba(202,138,4,0.08)'
                 }}
               >
                 Wide (WD)
@@ -857,11 +827,10 @@ const ScoringBoard = () => {
               <button
                 onClick={() => { setExtraForm({ extra_type: 'NO_BALL', extra_runs: 1 }); setPendingRuns(0); setShowExtraModal(true); }}
                 disabled={actionLoading}
-                className="btn"
+                className="btn scoring-action-btn"
                 style={{
-                  padding: '0.75rem 0', fontWeight: '700', fontSize: '0.85rem',
                   border: '2px solid #ca8a04', color: '#ca8a04',
-                  background: 'rgba(202,138,4,0.08)', borderRadius: '10px'
+                  background: 'rgba(202,138,4,0.08)'
                 }}
               >
                 No Ball (NB)
@@ -869,11 +838,10 @@ const ScoringBoard = () => {
               <button
                 onClick={() => { setExtraForm({ extra_type: 'BYE', extra_runs: 1 }); setPendingRuns(0); setShowExtraModal(true); }}
                 disabled={actionLoading}
-                className="btn"
+                className="btn scoring-action-btn"
                 style={{
-                  padding: '0.75rem 0', fontWeight: '700', fontSize: '0.85rem',
                   border: '2px solid #ca8a04', color: '#ca8a04',
-                  background: 'rgba(202,138,4,0.08)', borderRadius: '10px'
+                  background: 'rgba(202,138,4,0.08)'
                 }}
               >
                 Byes (B)
@@ -881,33 +849,32 @@ const ScoringBoard = () => {
               <button
                 onClick={() => { setExtraForm({ extra_type: 'LEG_BYE', extra_runs: 1 }); setPendingRuns(0); setShowExtraModal(true); }}
                 disabled={actionLoading}
-                className="btn"
+                className="btn scoring-action-btn"
                 style={{
-                  padding: '0.75rem 0', fontWeight: '700', fontSize: '0.85rem',
                   border: '2px solid #ca8a04', color: '#ca8a04',
-                  background: 'rgba(202,138,4,0.08)', borderRadius: '10px'
+                  background: 'rgba(202,138,4,0.08)'
                 }}
               >
                 Leg Byes (LB)
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.6rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr' }}>
               <button
                 onClick={() => {
                   setWicketForm({ runs_before_wicket: 0, wicket_type: 'BOWLED', dismissed_player_id: '', fielder_involved_id: '', is_direct_hit: false });
                   setShowWicketModal(true);
                 }}
                 disabled={actionLoading}
-                className="btn"
+                className="btn scoring-action-btn"
                 style={{
-                  padding: '0.9rem 0', fontWeight: '700', fontSize: '0.9rem',
                   border: '2px solid #ef4444', color: '#ef4444',
-                  background: 'rgba(239,68,68,0.08)', borderRadius: '10px',
-                  width: '100%'
+                  background: 'rgba(239,68,68,0.08)',
+                  width: '100%',
+                  fontSize: '0.88rem'
                 }}
               >
-                <AlertTriangle size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+                <AlertTriangle size={15} style={{ marginRight: '0.3rem' }} />
                 Wicket! 🏏
               </button>
             </div>
@@ -1338,21 +1305,15 @@ const ScoringBoard = () => {
 
 // ─── Modal Overlay ─────────────────────────────────────────────────────────────
 const ModalOverlay = ({ children, onClose }) => (
-  <div onClick={onClose} style={{
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-    zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem'
-  }}>
-    <div onClick={e => e.stopPropagation()} className="glass" style={{
-      padding: '2rem', width: '100%', maxWidth: '440px', borderRadius: '14px',
-      boxShadow: '0 20px 60px rgba(0,0,0,0.4)', position: 'relative'
-    }}>
+  <div onClick={onClose} className="scoring-modal-overlay">
+    <div onClick={e => e.stopPropagation()} className="glass scoring-modal-card">
       {/* Cancel Button */}
       <button 
         onClick={onClose} 
         style={{
-          position: 'absolute', top: '1rem', right: '1rem',
+          position: 'absolute', top: '0.85rem', right: '0.85rem',
           background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: '1.5rem', color: 'var(--text-muted)', fontWeight: 'bold',
+          fontSize: '1.4rem', color: 'var(--text-muted)', fontWeight: 'bold',
           lineHeight: '1', padding: '0.2rem'
         }}
         onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
