@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import Navigation from '../components/Navigation';
+import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL, SOCKET_URL } from '../config';
-import { Calendar, MapPin, Settings, Shield, Clipboard, Check, Plus, UserPlus, Trophy, AlertTriangle } from 'lucide-react';
+import { Calendar, MapPin, Settings, Clipboard, Check, Plus, UserPlus, Trophy, AlertTriangle, UserMinus, GripVertical, Trash2 } from 'lucide-react';
+
 
 const getLocalDateTimeString = () => {
   const now = new Date();
@@ -24,14 +26,102 @@ const generateShortName = (name) => {
 
 const CreateMatchWizard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [phase, setPhase] = useState(1); // 1 = Config, 2 = Roster, 3 = Toss
   const [matchId, setMatchId] = useState(null);
-  const [socket, setSocket] = useState(null);
+  const [_socket, setSocket] = useState(null);
 
   // Load from localStorage for quick creation fallback
   const savedConfigStr = localStorage.getItem('last_match_config');
   const savedConfig = savedConfigStr ? JSON.parse(savedConfigStr) : null;
+
+  // Floating Toast State (2 seconds auto-dismiss)
+  const [toast, setToast] = useState({ show: false, message: '' });
+  const toastTimerRef = useRef(null);
+
+  const triggerToast = (message) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, message });
+    toastTimerRef.current = setTimeout(() => {
+      setToast({ show: false, message: '' });
+    }, 2000);
+  };
+
+  // Drag and drop state & handlers
+  const [dragOverTeam, setDragOverTeam] = useState(null);
+
+  const handleDragStart = (e, player, sourceTeamId, isSubstitute = false) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      playerId: player._id,
+      playerName: player.display_name,
+      sourceTeamId,
+      isSubstitute
+    }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, teamKey) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverTeam !== teamKey) {
+      setDragOverTeam(teamKey);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOverTeam(null);
+  };
+
+
+  const handleDropOnTeam = async (e, targetTeamId, teamKey, defaultIsSub = false) => {
+    e.preventDefault();
+    setDragOverTeam(null);
+
+    try {
+      const dataRaw = e.dataTransfer.getData('application/json');
+      if (!dataRaw) return;
+      const { playerId, sourceTeamId, isSubstitute } = JSON.parse(dataRaw);
+
+      if (sourceTeamId === targetTeamId) return;
+
+      const canSub = matchData?.match_rules?.allow_substitutes !== false;
+      setLoading(true);
+      const response = await axios.post(`${API_BASE_URL}/matches/${matchId}/move-player`, {
+        playerId,
+        targetTeamId,
+        isSubstitute: canSub ? (isSubstitute || defaultIsSub) : false
+      });
+
+
+      setMatchData(response.data.match);
+      // Toast notification is broadcast to the affected player via Socket.IO, not displayed to admin
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to move player to team.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDropPlayer = async (e, playerId, playerName) => {
+    e.stopPropagation();
+    if (!matchId || !playerId) return;
+
+    setError('');
+    setLoading(true);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/matches/${matchId}/drop-player`, { playerId });
+      setMatchData(response.data.match);
+      setSuccess(`Dropped ${playerName} from match roster.`);
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to drop player from roster.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Phase 1 states: Match Config
   const [venue, setVenue] = useState(savedConfig?.venue || '');
@@ -52,8 +142,9 @@ const CreateMatchWizard = () => {
 
   // Phase 2 states: Teams & Roster
   const [teamsList, setTeamsList] = useState([]);
-  const [teamFirstId, setTeamFirstId] = useState(savedConfig?.teamFirstId || '');
-  const [teamSecondId, setTeamSecondId] = useState(savedConfig?.teamSecondId || '');
+  const [_teamFirstId, setTeamFirstId] = useState(savedConfig?.teamFirstId || '');
+  const [_teamSecondId, setTeamSecondId] = useState(savedConfig?.teamSecondId || '');
+
   const [matchData, setMatchData] = useState(null);
 
   // Autocomplete states for Team A and Team B
@@ -79,14 +170,32 @@ const CreateMatchWizard = () => {
     }
   }, [teamsList, teamFirstSelectedId, teamSecondSelectedId]);
 
-  // Search & add players state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [selectedTeamId, setSelectedTeamId] = useState('');
-  const [isSub, setIsSub] = useState(false);
+  // Search & add players per team states
+  const [teamASearchQuery, setTeamASearchQuery] = useState('');
+  const [teamASearchResults, setTeamASearchResults] = useState([]);
+  const [showTeamADropdown, setShowTeamADropdown] = useState(false);
 
-  // Umpires are designated by clicking chips in the Live Roster panel (Phase 2)
+  const [teamBSearchQuery, setTeamBSearchQuery] = useState('');
+  const [teamBSearchResults, setTeamBSearchResults] = useState([]);
+  const [showTeamBDropdown, setShowTeamBDropdown] = useState(false);
+
+  const teamASearchRef = useRef(null);
+  const teamBSearchRef = useRef(null);
+
+  // Close search player dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (teamASearchRef.current && !teamASearchRef.current.contains(e.target)) {
+        setShowTeamADropdown(false);
+      }
+      if (teamBSearchRef.current && !teamBSearchRef.current.contains(e.target)) {
+        setShowTeamBDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
 
   // Phase 3 states: Toss
   const [tossWinner, setTossWinner] = useState('');
@@ -98,12 +207,39 @@ const CreateMatchWizard = () => {
   const [success, setSuccess] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Discard Match modal states
+  const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+
+  const handleDiscardMatch = async () => {
+    const targetId = matchData?._id || sessionStorage.getItem('draftMatchId');
+    setDiscarding(true);
+
+    try {
+      if (targetId) {
+        await axios.delete(`${API_BASE_URL}/matches/${targetId}`);
+      }
+    } catch (err) {
+      console.error('Discard match error:', err);
+    } finally {
+      sessionStorage.removeItem('draftMatchId');
+      sessionStorage.removeItem('draftMatchConfig');
+      setMatchData(null);
+      setShowDiscardModal(false);
+      setDiscarding(false);
+      navigate('/dashboard');
+    }
+  };
+
+
   // Load teams list
   useEffect(() => {
     axios.get(`${API_BASE_URL}/teams`)
       .then(res => setTeamsList(res.data))
       .catch(err => console.error('Fetch teams error:', err));
   }, []);
+
 
   // Socket IO listener for live roster updates
   useEffect(() => {
@@ -124,22 +260,45 @@ const CreateMatchWizard = () => {
       setMatchData(data.match);
     });
 
+    newSocket.on('player_dropped', (data) => {
+      setMatchData(data.match);
+      setSuccess(data.message);
+      setTimeout(() => setSuccess(''), 2000);
+    });
+
+    newSocket.on('player_moved', (data) => {
+      setMatchData(data.match);
+
+      // Show toast only to the player whose team got changed
+      const currentUserPlayerId = (user?.associated_player_id?._id || user?.associated_player_id)?.toString();
+      const guestPlayerId = sessionStorage.getItem(`joined_player_${matchId}`);
+      const targetPlayerId = data.playerId?.toString();
+
+      const isTargetPlayer = (currentUserPlayerId && currentUserPlayerId === targetPlayerId) ||
+                             (guestPlayerId && guestPlayerId === targetPlayerId);
+
+      if (isTargetPlayer && data.targetTeamName) {
+        triggerToast(`Your team has been changed to ${data.targetTeamName}`);
+      }
+    });
+
     return () => {
       newSocket.close();
     };
-  }, [matchId]);
+  }, [matchId, user]);
 
-  // Autocomplete search
+
+
+  // Autocomplete search for Team A
   useEffect(() => {
-    if (!searchQuery) {
-      setSearchResults([]);
+    if (!teamASearchQuery.trim()) {
+      setTeamASearchResults([]);
       return;
     }
 
     const timer = setTimeout(() => {
-      axios.get(`${API_BASE_URL}/players/search?q=${searchQuery}`)
+      axios.get(`${API_BASE_URL}/players/search?q=${encodeURIComponent(teamASearchQuery.trim())}`)
         .then(res => {
-          // Filter out players already in the match
           if (matchData) {
             const registeredIds = [
               ...matchData.playing_xi_team_first,
@@ -147,16 +306,45 @@ const CreateMatchWizard = () => {
               ...matchData.substitutes_team_first,
               ...matchData.substitutes_team_second
             ].map(p => p._id);
-            setSearchResults(res.data.filter(p => !registeredIds.includes(p._id)));
+            setTeamASearchResults(res.data.filter(p => !registeredIds.includes(p._id)));
           } else {
-            setSearchResults(res.data);
+            setTeamASearchResults(res.data);
           }
         })
         .catch(err => console.error(err));
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, matchData]);
+  }, [teamASearchQuery, matchData]);
+
+  // Autocomplete search for Team B
+  useEffect(() => {
+    if (!teamBSearchQuery.trim()) {
+      setTeamBSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      axios.get(`${API_BASE_URL}/players/search?q=${encodeURIComponent(teamBSearchQuery.trim())}`)
+        .then(res => {
+          if (matchData) {
+            const registeredIds = [
+              ...matchData.playing_xi_team_first,
+              ...matchData.playing_xi_team_second,
+              ...matchData.substitutes_team_first,
+              ...matchData.substitutes_team_second
+            ].map(p => p._id);
+            setTeamBSearchResults(res.data.filter(p => !registeredIds.includes(p._id)));
+          } else {
+            setTeamBSearchResults(res.data);
+          }
+        })
+        .catch(err => console.error(err));
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [teamBSearchQuery, matchData]);
+
 
 
 
@@ -254,34 +442,32 @@ const CreateMatchWizard = () => {
     }
   };
 
-  const handleAddPlayer = async (e) => {
-    e.preventDefault();
-    if (!matchId || !selectedPlayer || !selectedTeamId) return;
+  const handleAddPlayerToTeam = async (displayName, targetTeamId, clearSearchFn) => {
+    if (!matchId || !displayName || !displayName.trim() || !targetTeamId) return;
 
     setError('');
     setLoading(true);
 
     try {
       const response = await axios.post(`${API_BASE_URL}/matches/${matchId}/join`, {
-        display_name: selectedPlayer.display_name,
-        team_id: selectedTeamId,
-        is_substitute: isSub
+        display_name: displayName.trim(),
+        team_id: targetTeamId,
+        is_substitute: false
       });
 
       setMatchData(response.data.match);
-      setSuccess(`Added ${selectedPlayer.display_name} to roster.`);
+      setSuccess(`Added ${displayName.trim()} to roster.`);
       setTimeout(() => setSuccess(''), 2000);
-      
-      // Reset form
-      setSelectedPlayer(null);
-      setSearchQuery('');
-      setIsSub(false);
+      if (clearSearchFn) clearSearchFn('');
+      setShowTeamADropdown(false);
+      setShowTeamBDropdown(false);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to add player to match.');
+      setError(err.response?.data?.error || 'Failed to add player to team.');
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}${import.meta.env.BASE_URL}matches/${matchId}/join`;
@@ -343,7 +529,36 @@ const CreateMatchWizard = () => {
   return (
     <>
       <Navigation />
+
+      {/* Floating Toast Notification for 2 Seconds */}
+      {toast.show && (
+        <div style={{
+          position: 'fixed',
+          top: '24px',
+          right: '24px',
+          zIndex: 9999,
+          backgroundColor: 'var(--secondary-color)',
+          color: '#ffffff',
+          padding: '0.85rem 1.25rem',
+          borderRadius: '12px',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          borderLeft: '4px solid var(--accent-color)',
+          fontSize: '0.9rem',
+          fontWeight: '600'
+        }}>
+          <span style={{ fontSize: '1.2rem' }}>🔄</span>
+          <div>
+            <div style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', opacity: 0.9 }}>Team Changed</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: '600' }}>{toast.message}</div>
+          </div>
+        </div>
+      )}
+
       <div style={{ maxWidth: '800px', margin: '2rem auto', padding: '0 1.5rem', width: '100%' }}>
+
         
         {/* Wizard Steps indicator */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
@@ -574,11 +789,21 @@ const CreateMatchWizard = () => {
                 </div>
               </div>
 
-              <div style={{ marginTop: '0.5rem' }}>
+              <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowDiscardModal(true)} 
+                  className="btn btn-outline" 
+                  style={{ padding: '0.85rem 1.75rem', fontWeight: '700', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
+                >
+                  Back
+                </button>
+
                 <button type="submit" disabled={loading} className="btn btn-primary" style={{ padding: '0.85rem 2.5rem', fontWeight: '700' }}>
                   {loading ? 'Initializing Match...' : 'Configure & Next'}
                 </button>
               </div>
+
             </form>
           </div>
         )}
@@ -603,74 +828,225 @@ const CreateMatchWizard = () => {
                 value={`http://localhost:5173/matches/${matchId}/join`} 
                 style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.85rem', padding: 0 }}
               />
-              <button onClick={handleCopyLink} className="btn" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', border: '1px solid var(--border-color)' }}>
-                {copied ? <Check size={14} style={{ color: 'var(--secondary-color)' }} /> : <Clipboard size={14} />}
-                {copied ? 'Copied' : 'Copy Invite'}
+              <button 
+                onClick={handleCopyLink} 
+                className="btn" 
+                style={{ 
+                  padding: '0.4rem 1rem', 
+                  fontSize: '0.8rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.3rem', 
+                  border: 'none',
+                  backgroundColor: 'var(--secondary-color)',
+                  color: '#ffffff',
+                  fontWeight: '600'
+                }}
+              >
+                {copied ? <Check size={14} style={{ color: '#ffffff' }} /> : <Clipboard size={14} style={{ color: '#ffffff' }} />}
+                <span style={{ color: '#ffffff' }}>{copied ? 'Copied' : 'Copy Invite'}</span>
               </button>
             </div>
 
             {/* Live Rosters Lists */}
             <div className="responsive-grid-2col">
               {/* Team First */}
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(0,0,0,0.01)' }}>
-                <h4 style={{ fontWeight: '800', color: 'var(--secondary-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
-                  {matchData.team_first_id?.team_name}
+              <div 
+
+                onDragOver={(e) => handleDragOver(e, 'team_first')}
+                onDragLeave={(e) => handleDragLeave(e, 'team_first')}
+                onDrop={(e) => handleDropOnTeam(e, matchData.team_first_id?._id, 'team_first')}
+                style={{ 
+                  border: dragOverTeam === 'team_first' ? '2px dashed var(--secondary-color)' : '1px solid var(--border-color)', 
+                  borderRadius: '8px', 
+                  padding: '1rem', 
+                  backgroundColor: dragOverTeam === 'team_first' ? 'rgba(29, 79, 42, 0.08)' : 'rgba(0,0,0,0.01)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <h4 style={{ fontWeight: '800', color: 'var(--secondary-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{matchData.team_first_id?.team_name}</span>
+                  {dragOverTeam === 'team_first' && <span style={{ fontSize: '0.75rem', color: 'var(--secondary-color)' }}>Drop player here</span>}
                 </h4>
+
+                {/* Quick Add Player to Team A */}
+                <div ref={teamASearchRef} style={{ marginBottom: '1rem', position: 'relative' }}>
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <UserPlus size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder={`Search & add player to ${matchData.team_first_id?.team_name}...`}
+                      value={teamASearchQuery}
+                      onChange={(e) => {
+                        setTeamASearchQuery(e.target.value);
+                        setShowTeamADropdown(true);
+                      }}
+                      onFocus={() => setShowTeamADropdown(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddPlayerToTeam(teamASearchQuery, matchData.team_first_id?._id, setTeamASearchQuery);
+                        }
+                      }}
+                      style={{ paddingLeft: '2.25rem', paddingRight: '0.75rem', width: '100%', fontSize: '0.85rem', height: '38px', borderRadius: '6px' }}
+                    />
+                  </div>
+
+                  {/* Autocomplete Results Dropdown */}
+                  {showTeamADropdown && teamASearchResults.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'var(--dominant-color)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px',
+                      zIndex: 20,
+                      maxHeight: '160px',
+                      overflowY: 'auto',
+                      marginTop: '0.3rem',
+                      boxShadow: 'var(--shadow)'
+                    }}>
+                      {teamASearchResults.map(p => (
+                        <div
+                          key={p._id}
+                          onMouseDown={() => {
+                            handleAddPlayerToTeam(p.display_name, matchData.team_first_id?._id, setTeamASearchQuery);
+                          }}
+                          style={{
+                            display: 'flex',
+                            justify: 'space-between',
+                            alignItems: 'center',
+                            padding: '0.55rem 0.85rem',
+                            borderBottom: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(29, 79, 42, 0.08)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <span>{p.display_name}</span>
+                          <Plus size={14} style={{ color: 'var(--secondary-color)', strokeWidth: 2.5 }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
-                  <strong>Playing XI (Click to toggle Umpire):</strong>
-                  {matchData.playing_xi_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)' }}>None joined.</span> : (
+                  <strong>Playing XI (Click to toggle Umpire, Drag to move):</strong>
+                  {matchData.playing_xi_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined (Drop player here).</span> : (
                     matchData.playing_xi_team_first.map(p => {
                       const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
                       return (
                         <div 
                           key={p._id} 
-                          onClick={() => handleToggleUmpire(p._id)}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, p, matchData.team_first_id?._id, false)}
                           style={{
-                            padding: '0.4rem 0.75rem',
+                            padding: '0.45rem 0.75rem',
                             border: isUmpire ? '2px solid var(--accent-color)' : '1px solid var(--border-color)',
-                            backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.1)' : 'transparent',
+                            backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.15)' : 'var(--dominant-color)',
                             borderRadius: '6px',
-                            cursor: 'pointer',
+                            cursor: 'grab',
                             display: 'flex',
-                            justifyContent: 'space-between',
+                            justify: 'space-between',
                             alignItems: 'center',
                             transition: 'all 0.2s',
                             userSelect: 'none'
                           }}
-                          title="Toggle Umpire"
+                          title="Drag to transfer team | Click name to toggle Umpire"
                         >
-                          <span>{p.display_name}</span>
-                          {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <GripVertical size={14} style={{ color: 'var(--text-muted)', cursor: 'grab' }} />
+                            <span onClick={() => handleToggleUmpire(p._id)} style={{ cursor: 'pointer', fontWeight: '500' }}>
+                              {p.display_name}
+                            </span>
+                            {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDropPlayer(e, p._id, p.display_name)}
+                            title="Drop player from team"
+                            style={{
+                              background: 'rgba(217, 83, 79, 0.1)',
+                              border: '1px solid rgba(217, 83, 79, 0.3)',
+                              color: '#D9534F',
+                              borderRadius: '4px',
+                              padding: '0.2rem 0.35rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'background 0.15s',
+                              marginLeft: 'auto'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.25)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.1)'}
+                          >
+                            <UserMinus size={13} />
+                          </button>
                         </div>
                       );
                     })
                   )}
-                  {matchData.match_rules?.allow_substitutes !== false && (
+                  {matchData.match_rules?.allow_substitutes === true && (
                     <>
-                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire):</strong>
-                      {matchData.substitutes_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)' }}>None joined.</span> : (
+                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire, Drag to move):</strong>
+                      {matchData.substitutes_team_first.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined.</span> : (
                         matchData.substitutes_team_first.map(p => {
                           const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
                           return (
                             <div 
                               key={p._id} 
-                              onClick={() => handleToggleUmpire(p._id)}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, p, matchData.team_first_id?._id, true)}
                               style={{
-                                padding: '0.4rem 0.75rem',
+                                padding: '0.45rem 0.75rem',
                                 border: isUmpire ? '2px solid var(--accent-color)' : '1px solid var(--border-color)',
-                                backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.1)' : 'transparent',
+                                backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.15)' : 'var(--dominant-color)',
                                 borderRadius: '6px',
-                                cursor: 'pointer',
+                                cursor: 'grab',
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 transition: 'all 0.2s',
                                 userSelect: 'none'
                               }}
-                              title="Toggle Umpire"
+                              title="Drag to transfer team | Click name to toggle Umpire"
                             >
-                              <span>{p.display_name}</span>
-                              {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <GripVertical size={14} style={{ color: 'var(--text-muted)', cursor: 'grab' }} />
+                                <span onClick={() => handleToggleUmpire(p._id)} style={{ cursor: 'pointer', fontWeight: '500' }}>
+                                  {p.display_name}
+                                </span>
+                                {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDropPlayer(e, p._id, p.display_name)}
+                                title="Drop player from team"
+                                style={{
+                                  background: 'rgba(217, 83, 79, 0.1)',
+                                  border: '1px solid rgba(217, 83, 79, 0.3)',
+                                  color: '#D9534F',
+                                  borderRadius: '4px',
+                                  padding: '0.2rem 0.35rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'background 0.15s',
+                                  marginLeft: 'auto'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.25)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.1)'}
+                              >
+                                <UserMinus size={13} />
+                              </button>
                             </div>
                           );
                         })
@@ -681,65 +1057,202 @@ const CreateMatchWizard = () => {
               </div>
 
               {/* Team Second */}
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(0,0,0,0.01)' }}>
-                <h4 style={{ fontWeight: '800', color: 'var(--secondary-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
-                  {matchData.team_second_id?.team_name}
+              <div 
+                onDragOver={(e) => handleDragOver(e, 'team_second')}
+                onDragLeave={(e) => handleDragLeave(e, 'team_second')}
+                onDrop={(e) => handleDropOnTeam(e, matchData.team_second_id?._id, 'team_second')}
+                style={{ 
+                  border: dragOverTeam === 'team_second' ? '2px dashed var(--secondary-color)' : '1px solid var(--border-color)', 
+                  borderRadius: '8px', 
+                  padding: '1rem', 
+                  backgroundColor: dragOverTeam === 'team_second' ? 'rgba(29, 79, 42, 0.08)' : 'rgba(0,0,0,0.01)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <h4 style={{ fontWeight: '800', color: 'var(--secondary-color)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{matchData.team_second_id?.team_name}</span>
+                  {dragOverTeam === 'team_second' && <span style={{ fontSize: '0.75rem', color: 'var(--secondary-color)' }}>Drop player here</span>}
                 </h4>
+
+                {/* Quick Add Player to Team B */}
+                <div ref={teamBSearchRef} style={{ marginBottom: '1rem', position: 'relative' }}>
+                  <div style={{ position: 'relative', width: '100%' }}>
+                    <UserPlus size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder={`Search & add player to ${matchData.team_second_id?.team_name}...`}
+                      value={teamBSearchQuery}
+                      onChange={(e) => {
+                        setTeamBSearchQuery(e.target.value);
+                        setShowTeamBDropdown(true);
+                      }}
+                      onFocus={() => setShowTeamBDropdown(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddPlayerToTeam(teamBSearchQuery, matchData.team_second_id?._id, setTeamBSearchQuery);
+                        }
+                      }}
+                      style={{ paddingLeft: '2.25rem', paddingRight: '0.75rem', width: '100%', fontSize: '0.85rem', height: '38px', borderRadius: '6px' }}
+                    />
+                  </div>
+
+
+                  {/* Autocomplete Results Dropdown */}
+                  {showTeamBDropdown && teamBSearchResults.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'var(--dominant-color)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px',
+                      zIndex: 20,
+                      maxHeight: '160px',
+                      overflowY: 'auto',
+                      marginTop: '0.3rem',
+                      boxShadow: 'var(--shadow)'
+                    }}>
+                      {teamBSearchResults.map(p => (
+                        <div
+                          key={p._id}
+                          onMouseDown={() => {
+                            handleAddPlayerToTeam(p.display_name, matchData.team_second_id?._id, setTeamBSearchQuery);
+                          }}
+                          style={{
+                            display: 'flex',
+                            justify: 'space-between',
+                            alignItems: 'center',
+                            padding: '0.55rem 0.85rem',
+                            borderBottom: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(29, 79, 42, 0.08)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <span>{p.display_name}</span>
+                          <Plus size={14} style={{ color: 'var(--secondary-color)', strokeWidth: 2.5 }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
-                  <strong>Playing XI (Click to toggle Umpire):</strong>
-                  {matchData.playing_xi_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)' }}>None joined.</span> : (
+                  <strong>Playing XI (Click to toggle Umpire, Drag to move):</strong>
+                  {matchData.playing_xi_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined (Drop player here).</span> : (
                     matchData.playing_xi_team_second.map(p => {
                       const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
                       return (
                         <div 
                           key={p._id} 
-                          onClick={() => handleToggleUmpire(p._id)}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, p, matchData.team_second_id?._id, false)}
                           style={{
-                            padding: '0.4rem 0.75rem',
+                            padding: '0.45rem 0.75rem',
                             border: isUmpire ? '2px solid var(--accent-color)' : '1px solid var(--border-color)',
-                            backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.1)' : 'transparent',
+                            backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.15)' : 'var(--dominant-color)',
                             borderRadius: '6px',
-                            cursor: 'pointer',
+                            cursor: 'grab',
                             display: 'flex',
-                            justifyContent: 'space-between',
+                            justify: 'space-between',
                             alignItems: 'center',
                             transition: 'all 0.2s',
                             userSelect: 'none'
                           }}
-                          title="Toggle Umpire"
+                          title="Drag to transfer team | Click name to toggle Umpire"
                         >
-                          <span>{p.display_name}</span>
-                          {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <GripVertical size={14} style={{ color: 'var(--text-muted)', cursor: 'grab' }} />
+                            <span onClick={() => handleToggleUmpire(p._id)} style={{ cursor: 'pointer', fontWeight: '500' }}>
+                              {p.display_name}
+                            </span>
+                            {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDropPlayer(e, p._id, p.display_name)}
+                            title="Drop player from team"
+                            style={{
+                              background: 'rgba(217, 83, 79, 0.1)',
+                              border: '1px solid rgba(217, 83, 79, 0.3)',
+                              color: '#D9534F',
+                              borderRadius: '4px',
+                              padding: '0.2rem 0.35rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'background 0.15s',
+                              marginLeft: 'auto'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.25)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.1)'}
+                          >
+                            <UserMinus size={13} />
+                          </button>
                         </div>
                       );
                     })
                   )}
-                  {matchData.match_rules?.allow_substitutes !== false && (
+                  {matchData.match_rules?.allow_substitutes === true && (
                     <>
-                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire):</strong>
-                      {matchData.substitutes_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)' }}>None joined.</span> : (
+                      <strong style={{ marginTop: '0.5rem' }}>Substitutes (Click to toggle Umpire, Drag to move):</strong>
+                      {matchData.substitutes_team_second.length === 0 ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>None joined.</span> : (
                         matchData.substitutes_team_second.map(p => {
                           const isUmpire = matchData.umpires?.some(u => (u._id || u) === p._id);
                           return (
                             <div 
                               key={p._id} 
-                              onClick={() => handleToggleUmpire(p._id)}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, p, matchData.team_second_id?._id, true)}
                               style={{
-                                padding: '0.4rem 0.75rem',
+                                padding: '0.45rem 0.75rem',
                                 border: isUmpire ? '2px solid var(--accent-color)' : '1px solid var(--border-color)',
-                                backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.1)' : 'transparent',
+                                backgroundColor: isUmpire ? 'rgba(198, 165, 103, 0.15)' : 'var(--dominant-color)',
                                 borderRadius: '6px',
-                                cursor: 'pointer',
+                                cursor: 'grab',
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 transition: 'all 0.2s',
                                 userSelect: 'none'
                               }}
-                              title="Toggle Umpire"
+                              title="Drag to transfer team | Click name to toggle Umpire"
                             >
-                              <span>{p.display_name}</span>
-                              {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <GripVertical size={14} style={{ color: 'var(--text-muted)', cursor: 'grab' }} />
+                                <span onClick={() => handleToggleUmpire(p._id)} style={{ cursor: 'pointer', fontWeight: '500' }}>
+                                  {p.display_name}
+                                </span>
+                                {isUmpire && <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent-color)' }}>⚖️ Umpire</span>}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDropPlayer(e, p._id, p.display_name)}
+                                title="Drop player from team"
+                                style={{
+                                  background: 'rgba(217, 83, 79, 0.1)',
+                                  border: '1px solid rgba(217, 83, 79, 0.3)',
+                                  color: '#D9534F',
+                                  borderRadius: '4px',
+                                  padding: '0.2rem 0.35rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'background 0.15s',
+                                  marginLeft: 'auto'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.25)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(217, 83, 79, 0.1)'}
+                              >
+                                <UserMinus size={13} />
+                              </button>
                             </div>
                           );
                         })
@@ -750,59 +1263,20 @@ const CreateMatchWizard = () => {
               </div>
             </div>
 
-            {/* Manual Player Addition */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
-              <h4 style={{ fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <UserPlus size={18} />
-                Manually Add Player
-              </h4>
-              <form onSubmit={handleAddPlayer} style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: '1 1 200px', position: 'relative' }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>Search Player Profile</label>
-                  <input 
-                    type="text" 
-                    placeholder="Type display name..." 
-                    value={searchQuery} 
-                    onChange={(e) => { setSearchQuery(e.target.value); setSelectedPlayer(null); }}
-                  />
-                  {searchResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'var(--dominant-color)', border: '1px solid var(--border-color)', borderRadius: '8px', zIndex: 10, maxHeight: '150px', overflowY: 'auto' }}>
-                      {searchResults.map(p => (
-                        <button type="button" key={p._id} onClick={() => { setSelectedPlayer(p); setSearchQuery(p.display_name); setSearchResults([]); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color)', color: 'var(--text-color)', cursor: 'pointer' }}>
-                          {p.display_name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: '1 1 150px' }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>Add To Team</label>
-                  <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} required>
-                    <option value="">Select Team</option>
-                    <option value={matchData.team_first_id?._id}>{matchData.team_first_id?.team_name}</option>
-                    <option value={matchData.team_second_id?._id}>{matchData.team_second_id?.team_name}</option>
-                  </select>
-                </div>
-
-                {matchData.match_rules?.allow_substitutes !== false && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', height: '38px', paddingBottom: '0.5rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={isSub} onChange={(e) => setIsSub(e.target.checked)} style={{ width: '16px', height: '16px' }} />
-                      Substitute
-                    </label>
-                  </div>
-                )}
-
-                <button type="submit" disabled={loading || !selectedPlayer || !selectedTeamId} className="btn btn-accent" style={{ padding: '0.5rem 1.5rem', height: '38px' }}>
-                  <Plus size={16} style={{ verticalAlign: 'middle', marginRight: '0.2rem' }} />
-                  Add
-                </button>
-              </form>
-            </div>
 
             {/* Next step buttons */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                type="button" 
+                onClick={() => setShowDiscardModal(true)} 
+                className="btn btn-outline" 
+                style={{ color: '#D9534F', borderColor: 'rgba(217, 83, 79, 0.4)', padding: '0.85rem 1.5rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <Trash2 size={16} />
+                Discard Match
+              </button>
               <button 
                 onClick={() => {
                   // Basic validation: must have at least 1 player on each team (or wait until toss phase)
@@ -900,23 +1374,22 @@ const CreateMatchWizard = () => {
                 </div>
               </div>
 
-              {/* Select Decision */}
+              {/* Select Elected Decision */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: '700' }}>Toss Winner Elected To:</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: '700' }}>Elected To?</span>
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <label style={{
                     flex: 1,
-                    display: 'flex',
-                    justifyContent: 'center',
                     padding: '1rem',
                     borderRadius: '8px',
                     border: '2px solid',
                     borderColor: tossDecision === 'BAT' ? 'var(--secondary-color)' : 'var(--border-color)',
                     backgroundColor: tossDecision === 'BAT' ? 'rgba(29, 79, 42, 0.04)' : 'transparent',
+                    cursor: 'pointer',
+                    textAlign: 'center',
                     fontWeight: '700',
                     fontSize: '0.9rem',
-                    cursor: 'pointer',
-                    textAlign: 'center'
+                    transition: 'all 0.2s'
                   }}>
                     <input 
                       type="radio" 
@@ -931,17 +1404,16 @@ const CreateMatchWizard = () => {
 
                   <label style={{
                     flex: 1,
-                    display: 'flex',
-                    justifyContent: 'center',
                     padding: '1rem',
                     borderRadius: '8px',
                     border: '2px solid',
                     borderColor: tossDecision === 'FIELD' ? 'var(--secondary-color)' : 'var(--border-color)',
                     backgroundColor: tossDecision === 'FIELD' ? 'rgba(29, 79, 42, 0.04)' : 'transparent',
+                    cursor: 'pointer',
+                    textAlign: 'center',
                     fontWeight: '700',
                     fontSize: '0.9rem',
-                    cursor: 'pointer',
-                    textAlign: 'center'
+                    transition: 'all 0.2s'
                   }}>
                     <input 
                       type="radio" 
@@ -957,7 +1429,16 @@ const CreateMatchWizard = () => {
               </div>
 
               {/* Action buttons */}
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowDiscardModal(true)} 
+                  className="btn btn-outline" 
+                  style={{ color: '#D9534F', borderColor: 'rgba(217, 83, 79, 0.4)', padding: '0.85rem 1.5rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <Trash2 size={16} />
+                  Discard Match
+                </button>
                 <button type="submit" disabled={loading} className="btn btn-primary" style={{ padding: '0.85rem 3rem', fontWeight: '700', flex: 1 }}>
                   {loading ? 'Starting Match...' : 'Start Live Match'}
                 </button>
@@ -969,6 +1450,85 @@ const CreateMatchWizard = () => {
           </div>
         )}
       </div>
+
+      {/* Discard Match Confirmation Modal */}
+      {showDiscardModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 10000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1.5rem'
+        }}>
+          <div className="glass" style={{
+            maxWidth: '440px',
+            width: '100%',
+            padding: '2rem',
+            borderRadius: '16px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(217, 83, 79, 0.15)',
+              color: '#D9534F',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto'
+            }}>
+              <Trash2 size={28} />
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: '1.35rem', fontWeight: '800', marginBottom: '0.5rem', color: 'var(--text-color)' }}>
+                Discard Match?
+              </h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                Are you sure you want to discard this match? This will permanently delete the match and disable all active invite links.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={discarding}
+                onClick={() => setShowDiscardModal(false)}
+                style={{ flex: 1, padding: '0.75rem', fontWeight: '700' }}
+              >
+                No, Keep Match
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={discarding}
+                onClick={handleDiscardMatch}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem',
+                  fontWeight: '700',
+                  backgroundColor: '#D9534F',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px'
+                }}
+              >
+                {discarding ? 'Discarding...' : 'Yes, Discard Match'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

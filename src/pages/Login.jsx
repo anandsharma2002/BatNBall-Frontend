@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Shield, Phone, Lock, AlertTriangle } from 'lucide-react';
 
@@ -9,6 +9,10 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(false);
+
+  const [searchParams] = useSearchParams();
+  const redirectParam = searchParams.get('redirect');
+  const redirectPath = redirectParam || sessionStorage.getItem('redirectAfterLogin') || '/dashboard';
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -28,7 +32,8 @@ const Login = () => {
 
     try {
       await login(phone.trim(), password);
-      navigate('/dashboard');
+      sessionStorage.removeItem('redirectAfterLogin');
+      navigate(redirectPath, { replace: true });
     } catch (err) {
       setError(err.message);
       triggerShake();
@@ -36,6 +41,7 @@ const Login = () => {
       setLoading(false);
     }
   };
+
 
   const triggerShake = () => {
     setShake(true);

@@ -182,12 +182,12 @@ input:focus, select:focus, textarea:focus {
   top: 100%;
   left: 0;
   right: 0;
-  background-color: var(--card-bg);
+  background-color: var(--dominant-color);
   border-bottom: 1px solid var(--border-color);
   padding: 1rem;
   gap: 0.75rem;
-  box-shadow: var(--shadow);
-  z-index: 99;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  z-index: 999;
 }
 
 .nav-menu-button {
